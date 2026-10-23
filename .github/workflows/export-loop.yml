@@ -1,0 +1,60 @@
+name: 每 5 分鐘匯出市集資料（接力）
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */3 * * *"
+
+concurrency:
+  group: export-loop
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: write
+
+env:
+  MARKET_REPO: git@github.com:bozhan9527-ux/No_boss_here.git
+
+jobs:
+  loop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 放好部署金鑰
+        env:
+          KEY: ${{ secrets.MARKET_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@users.noreply.github.com"
+
+      - name: 每 5 分鐘匯出一次
+        env:
+          PUSH_URL: ${{ env.MARKET_REPO }}
+        run: |
+          end=$((SECONDS + 320 * 60))
+          while [ "$SECONDS" -lt "$end" ]; do
+            echo "== $(TZ=Asia/Taipei date '+%H:%M') =="
+            rm -rf market
+            if git clone -q --depth=1 --filter=blob:none --sparse "$PUSH_URL" market \
+              && git -C market sparse-checkout set scripts src/lib; then
+              (cd market && bash scripts/export-once.sh) || echo "這一輪失敗，5 分鐘後再試"
+            else
+              echo "拿不到匯出程式（部署金鑰沒設好？），5 分鐘後再試"
+            fi
+            sleep 300
+          done
+
+      - name: 接力：開下一輪
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run export-loop.yml --repo "${{ github.repository }}" --ref "${{ github.ref_name }}"
