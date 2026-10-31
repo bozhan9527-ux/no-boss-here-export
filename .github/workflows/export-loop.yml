@@ -1,5 +1,9 @@
 name: 每 5 分鐘匯出市集資料（接力）
 
+# 這個 repo 是公開的，GitHub Actions 不限分鐘；網站程式在私人的 bozhan9527-ux/No_boss_here。
+# 每一輪用部署金鑰 MARKET_SSH_KEY（No_boss_here 的 Deploy key，可寫入、不會過期）拿最新的匯出程式，
+# 匯出攤位、照片、人次、天氣，有變化就推到 No_boss_here 的 site 分支（Cloudflare Pages 追蹤它）。
+# 一個工作連續跑約 5 小時 20 分，結束前自己開下一輪；每 3 小時的排程是備援。
 on:
   workflow_dispatch:
   schedule:
@@ -39,10 +43,14 @@ jobs:
       - name: 每 5 分鐘匯出一次
         env:
           PUSH_URL: ${{ env.MARKET_REPO }}
+          # 每天備份公開數字到私人 repo（scripts/archive-once.sh，2026-11-01）；沒設這兩個 secret 就跳過
+          ARCHIVE_REPO: ${{ secrets.ARCHIVE_REPO }}
+          ARCHIVE_TOKEN: ${{ secrets.ARCHIVE_TOKEN }}
         run: |
           end=$((SECONDS + 320 * 60))
           while [ "$SECONDS" -lt "$end" ]; do
             echo "== $(TZ=Asia/Taipei date '+%H:%M') =="
+            # 每一輪重新拿最新的匯出程式（只拿 scripts 和設定），推了新程式不用重開接力
             rm -rf market
             if git clone -q --depth=1 --filter=blob:none --sparse "$PUSH_URL" market \
               && git -C market sparse-checkout set scripts src/lib; then
