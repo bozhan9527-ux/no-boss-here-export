@@ -2,7 +2,9 @@ name: 每 5 分鐘匯出市集資料（接力）
 
 # 這個 repo 是公開的，GitHub Actions 不限分鐘；網站程式在私人的 bozhan9527-ux/No_boss_here。
 # 每一輪用部署金鑰 MARKET_SSH_KEY（No_boss_here 的 Deploy key，可寫入、不會過期）拿最新的匯出程式，
-# 匯出攤位、照片、人次、天氣，有變化就推到 No_boss_here 的 site 分支（Cloudflare Pages 追蹤它）。
+# 匯出攤位、照片、人次、天氣，有變化就推到 No_boss_here 的 site 分支，
+# 再把 site 直接上傳到 Cloudflare Pages（scripts/pages-deploy.sh；2026-11-03 起不靠 Pages 的 Git 部署）。
+# 需要 secrets：MARKET_SSH_KEY、CLOUDFLARE_API_TOKEN（Cloudflare Pages：編輯）、CLOUDFLARE_ACCOUNT_ID。
 # 一個工作連續跑約 5 小時 20 分，結束前自己開下一輪；每 3 小時的排程是備援。
 on:
   workflow_dispatch:
@@ -46,6 +48,10 @@ jobs:
           # 每天備份公開數字到私人 repo（scripts/archive-once.sh，2026-11-01）；沒設這兩個 secret 就跳過
           ARCHIVE_REPO: ${{ secrets.ARCHIVE_REPO }}
           ARCHIVE_TOKEN: ${{ secrets.ARCHIVE_TOKEN }}
+          # 直接上傳到 Cloudflare Pages 用（2026-11-03）；記上一次上傳的版本，沒新版本就不傳
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DEPLOYED_FILE: ${{ runner.temp }}/pages-deployed
         run: |
           end=$((SECONDS + 320 * 60))
           while [ "$SECONDS" -lt "$end" ]; do
@@ -55,6 +61,10 @@ jobs:
             if git clone -q --depth=1 --filter=blob:none --sparse "$PUSH_URL" market \
               && git -C market sparse-checkout set scripts src/lib; then
               (cd market && bash scripts/export-once.sh) || echo "這一輪失敗，5 分鐘後再試"
+              # 推完 site 就直接上傳到 Cloudflare Pages（舊版程式沒有這支就跳過）
+              if [ -f market/scripts/pages-deploy.sh ]; then
+                (cd market && bash scripts/pages-deploy.sh) || echo "這一輪上傳失敗，5 分鐘後再試"
+              fi
             else
               echo "拿不到匯出程式（部署金鑰沒設好？），5 分鐘後再試"
             fi
