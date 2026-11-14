@@ -31,6 +31,16 @@ jobs:
         with:
           node-version: 22
 
+      # 套件快取（2026-11-14 上線流程加速）：接力約 5 小時換一台新機器，node_modules 存在 actions/cache，
+      # 新機器第一次建置不用重跑 npm ci（package-lock.json 變了 build-lib.sh 照樣重裝）；每一輪結束時存一份
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/nbh-build/node_modules
+            ~/.cache/nbh-build/node_modules.key
+          key: nbh-node-modules-${{ github.run_id }}
+          restore-keys: nbh-node-modules-
+
       - name: 放好部署金鑰
         env:
           KEY: ${{ secrets.MARKET_SSH_KEY }}
